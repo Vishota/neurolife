@@ -1,4 +1,4 @@
-export default class Neural {
+export default class Simulation {
 	device: GPUDevice
 	pipeline: GPUComputePipeline
 	bindGroup: GPUBindGroup
@@ -9,16 +9,27 @@ export default class Neural {
 	cellsBuffer: GPUBuffer
 	foodBuffer: GPUBuffer
 	globalDataBuffer: GPUBuffer
+	cameraBuffer: GPUBuffer
+
+	scale: number = 1
+	camY: number = 0
+	camX: number = 0
+
+	canvas: HTMLCanvasElement
+	context: GPUCanvasContext
 
 	cellCount: number
 
 	constructor(
 		device: GPUDevice,
 		layers: number[],
-		cellCount: number
+		cellCount: number,
+		canvas: HTMLCanvasElement
 	) {
 		this.device = device
 		this.cellCount = cellCount
+		this.canvas = canvas
+		this.context = canvas.getContext('webgpu')!
 
 		const cellWeightsVolume = layers
 			.slice(0, -1)
@@ -36,11 +47,6 @@ fn rand(seed: ptr<function, u32>) -> f32 {
     (*seed) = (*seed) * 1664525u + 1013904223u;
     return f32((*seed) & 0x00FFFFFFu) / f32(0x01000000u);
 }
-
-
-
-
-
 
 
 
@@ -85,6 +91,14 @@ struct food_params {
 // food
 @group(0) @binding(5) var<storage, read_write> food_data: array<food_params>;
 
+struct Camera {
+    pos: vec2<f32>,
+    scale: f32,
+    _pad: f32,
+};
+
+@group(0) @binding(6)
+var<uniform> camera: Camera;
 
 
 fn neuron_id(cell: u32, layer: u32, neuron: u32, weight: u32) -> u32 {
@@ -524,6 +538,11 @@ fn tick(@builtin(global_invocation_id) id: vec3<u32>) {
 			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
 		})
 
+		this.cameraBuffer = device.createBuffer({
+			size: 16,
+			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+		})
+
 		this.bindGroup = device.createBindGroup({
 			layout: this.pipeline.getBindGroupLayout(0),
 			entries: [
@@ -534,6 +553,25 @@ fn tick(@builtin(global_invocation_id) id: vec3<u32>) {
 				{ binding: 4, resource: { buffer: this.cellsBuffer } },
 				{ binding: 5, resource: { buffer: this.foodBuffer } },
 			]
+		})
+
+
+		window.addEventListener('keydown', e => {
+			const speed = 10 / this.scale
+
+			if (e.key === 'w') this.camY -= speed
+			if (e.key === 's') this.camY += speed
+			if (e.key === 'a') this.camX -= speed
+			if (e.key === 'd') this.camX += speed
+
+			if (e.key === 'q') this.scale *= 1.1
+			if (e.key === 'e') this.scale *= 0.9
+
+			this.device.queue.writeBuffer(
+				this.cameraBuffer,
+				0,
+				new Float32Array([this.camX, this.camY, this.scale, 0])
+			)
 		})
 	}
 
@@ -549,5 +587,13 @@ fn tick(@builtin(global_invocation_id) id: vec3<u32>) {
 		pass.end()
 
 		this.device.queue.submit([encoder.finish()])
+	}
+
+	
+
+	loop() {
+        console.log('tick')
+		this.tick()
+		requestAnimationFrame(() => this.loop())
 	}
 }

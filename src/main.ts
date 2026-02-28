@@ -1,5 +1,5 @@
+import Simulation from './Simulation'
 import './style.css'
-import testNeural from './test'
 
 const canvas = document.createElement('canvas')
 canvas.width = window.innerWidth
@@ -7,5 +7,10 @@ canvas.height = window.innerHeight
 
 document.body.insertAdjacentElement('beforeend', canvas)
 
+const adapter = (await navigator.gpu.requestAdapter())!
+const device = (await adapter.requestDevice())!
 
-testNeural();
+
+const sim = new Simulation(device, [9, 13,13, 10], 30, canvas)
+
+sim.loop()
