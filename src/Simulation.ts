@@ -1,48 +1,48 @@
 export default class Simulation {
-	device: GPUDevice
-	pipeline: GPUComputePipeline
-	bindGroup: GPUBindGroup
+    device: GPUDevice
+    pipeline: GPUComputePipeline
+    bindGroup: GPUBindGroup
 
-	weightsBuffer: GPUBuffer
-	inputsBuffer: GPUBuffer
-	outputsBuffer: GPUBuffer
-	cellsBuffer: GPUBuffer
-	foodBuffer: GPUBuffer
-	globalDataBuffer: GPUBuffer
-	cameraBuffer: GPUBuffer
+    weightsBuffer: GPUBuffer
+    inputsBuffer: GPUBuffer
+    outputsBuffer: GPUBuffer
+    cellsBuffer: GPUBuffer
+    foodBuffer: GPUBuffer
+    globalDataBuffer: GPUBuffer
+    cameraBuffer: GPUBuffer
 
-	scale: number = 1
-	camY: number = 0
-	camX: number = 0
+    scale: number = 1
+    camY: number = 0
+    camX: number = 0
 
-	canvas: HTMLCanvasElement
-	context: GPUCanvasContext
+    canvas: HTMLCanvasElement
+    context: GPUCanvasContext
 
-	cellCount: number
+    cellCount: number
 
-	constructor(
-		device: GPUDevice,
-		layers: number[],
-		cellCount: number,
-		canvas: HTMLCanvasElement
-	) {
-		this.device = device
-		this.cellCount = cellCount
-		this.canvas = canvas
-		this.context = canvas.getContext('webgpu')!
+    constructor(
+        device: GPUDevice,
+        layers: number[],
+        cellCount: number,
+        canvas: HTMLCanvasElement
+    ) {
+        this.device = device
+        this.cellCount = cellCount
+        this.canvas = canvas
+        this.context = canvas.getContext('webgpu')!
 
-		const cellWeightsVolume = layers
-			.slice(0, -1)
-			.reduce((sum, layer, i) => sum + layer * layers[i + 1], 0)
+        const cellWeightsVolume = layers
+            .slice(0, -1)
+            .reduce((sum, layer, i) => sum + layer * layers[i + 1], 0)
 
-		const maxLayerSize = Math.max(...layers)
+        const maxLayerSize = Math.max(...layers)
 
-		const maxCellsCount = 1000
-		const maxFoodCount = 1000
+        const maxCellsCount = 1000
+        const maxFoodCount = 1000
 
-		const cellSpeed = 5
+        const cellSpeed = 5
 
-		const shader = `
+        const shader = `
 fn rand(seed: ptr<function, u32>) -> f32 {
     (*seed) = (*seed) * 1664525u + 1013904223u;
     return f32((*seed) & 0x00FFFFFFu) / f32(0x01000000u);
@@ -489,111 +489,111 @@ fn tick(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 `
 
-		const module = device.createShaderModule({ code: shader })
+        const module = device.createShaderModule({ code: shader })
 
-		this.pipeline = device.createComputePipeline({
-			layout: 'auto',
-			compute: {
-				module,
-				entryPoint: 'tick'
-			}
-		})
+        this.pipeline = device.createComputePipeline({
+            layout: 'auto',
+            compute: {
+                module,
+                entryPoint: 'tick'
+            }
+        })
 
-		const weightsSize =
-			cellCount * cellWeightsVolume * 4
+        const weightsSize =
+            cellCount * cellWeightsVolume * 4
 
-		const inputsSize =
-			cellCount * layers[0] * 4
+        const inputsSize =
+            cellCount * layers[0] * 4
 
-		const outputsSize =
-			cellCount * layers[layers.length - 1] * 4
+        const outputsSize =
+            cellCount * layers[layers.length - 1] * 4
 
-		this.weightsBuffer = device.createBuffer({
-			size: weightsSize,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-		})
+        this.weightsBuffer = device.createBuffer({
+            size: weightsSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        })
 
-		this.inputsBuffer = device.createBuffer({
-			size: inputsSize,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-		})
+        this.inputsBuffer = device.createBuffer({
+            size: inputsSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+        })
 
-		this.outputsBuffer = device.createBuffer({
-			size: outputsSize,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-		})
+        this.outputsBuffer = device.createBuffer({
+            size: outputsSize,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        })
 
-		this.cellsBuffer = device.createBuffer({
-			size: 134217728, //todo change
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-		})
+        this.cellsBuffer = device.createBuffer({
+            size: 134217728, //todo change
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        })
 
-		this.foodBuffer = device.createBuffer({
-			size: 134217728, //todo change
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-		})
+        this.foodBuffer = device.createBuffer({
+            size: 134217728, //todo change
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        })
 
-		this.globalDataBuffer = device.createBuffer({
-			size: 12,
-			usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-		})
+        this.globalDataBuffer = device.createBuffer({
+            size: 12,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+        })
 
-		this.cameraBuffer = device.createBuffer({
-			size: 16,
-			usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-		})
+        this.cameraBuffer = device.createBuffer({
+            size: 16,
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+        })
 
-		this.bindGroup = device.createBindGroup({
-			layout: this.pipeline.getBindGroupLayout(0),
-			entries: [
-				{ binding: 0, resource: { buffer: this.globalDataBuffer } },
-				{ binding: 1, resource: { buffer: this.weightsBuffer } },
-				{ binding: 2, resource: { buffer: this.inputsBuffer } },
-				{ binding: 3, resource: { buffer: this.outputsBuffer } },
-				{ binding: 4, resource: { buffer: this.cellsBuffer } },
-				{ binding: 5, resource: { buffer: this.foodBuffer } },
-			]
-		})
+        this.bindGroup = device.createBindGroup({
+            layout: this.pipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: { buffer: this.globalDataBuffer } },
+                { binding: 1, resource: { buffer: this.weightsBuffer } },
+                { binding: 2, resource: { buffer: this.inputsBuffer } },
+                { binding: 3, resource: { buffer: this.outputsBuffer } },
+                { binding: 4, resource: { buffer: this.cellsBuffer } },
+                { binding: 5, resource: { buffer: this.foodBuffer } },
+            ]
+        })
 
 
-		window.addEventListener('keydown', e => {
-			const speed = 10 / this.scale
+        window.addEventListener('keydown', e => {
+            const speed = 10 / this.scale
 
-			if (e.key === 'w') this.camY -= speed
-			if (e.key === 's') this.camY += speed
-			if (e.key === 'a') this.camX -= speed
-			if (e.key === 'd') this.camX += speed
+            if (e.key === 'w') this.camY -= speed
+            if (e.key === 's') this.camY += speed
+            if (e.key === 'a') this.camX -= speed
+            if (e.key === 'd') this.camX += speed
 
-			if (e.key === 'q') this.scale *= 1.1
-			if (e.key === 'e') this.scale *= 0.9
+            if (e.key === 'q') this.scale *= 1.1
+            if (e.key === 'e') this.scale *= 0.9
 
-			this.device.queue.writeBuffer(
-				this.cameraBuffer,
-				0,
-				new Float32Array([this.camX, this.camY, this.scale, 0])
-			)
-		})
-	}
+            this.device.queue.writeBuffer(
+                this.cameraBuffer,
+                0,
+                new Float32Array([this.camX, this.camY, this.scale, 0])
+            )
+        })
+    }
 
-	tick() {
-		const encoder = this.device.createCommandEncoder()
-		const pass = encoder.beginComputePass()
+    tick() {
+        const encoder = this.device.createCommandEncoder()
+        const pass = encoder.beginComputePass()
 
-		pass.setPipeline(this.pipeline)
-		pass.setBindGroup(0, this.bindGroup)
+        pass.setPipeline(this.pipeline)
+        pass.setBindGroup(0, this.bindGroup)
 
-		pass.dispatchWorkgroups(this.cellCount)
+        pass.dispatchWorkgroups(this.cellCount)
 
-		pass.end()
+        pass.end()
 
-		this.device.queue.submit([encoder.finish()])
-	}
+        this.device.queue.submit([encoder.finish()])
+    }
 
-	
 
-	loop() {
+
+    loop() {
         console.log('tick')
-		this.tick()
-		requestAnimationFrame(() => this.loop())
-	}
+        this.tick()
+        requestAnimationFrame(() => this.loop())
+    }
 }
