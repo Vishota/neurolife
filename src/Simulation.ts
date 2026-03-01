@@ -51,8 +51,8 @@ export default class Simulation {
         for (let i = 0; i < globalData[0]; i++) {
             const base = i * cellStride
 
-            cells[base + 0] = (Math.random() - 0.5) * 500
-            cells[base + 1] = (Math.random() - 0.5) * 500
+            cells[base + 0] = (Math.random() - 0.2) * 200
+            cells[base + 1] = (Math.random() - 0.2) * 200
             cells[base + 2] = 1000 // energy
             cells[base + 3] = 0 //age
 
@@ -72,8 +72,8 @@ export default class Simulation {
 
         for (let i = 0; i < globalData[1]; i++) {
             const base = i * foodStride
-            food[base + 0] = (Math.random() - 0.5) * 50
-            food[base + 1] = (Math.random() - 0.5) * 50
+            food[base + 0] = (Math.random() - 0.2) * 50
+            food[base + 1] = (Math.random() - 0.2) * 50
         }
 
         this.device.queue.writeBuffer(
@@ -169,13 +169,13 @@ fn rand(seed: ptr<function, u32>) -> f32 {
 
 
 
-const vision_distance = 100;
+const vision_distance = 10;
 
 const world_size: f32 = 1000.0;
 const half_world: f32 = world_size * 0.5;
 const eat_distance: f32 = 4.0;
-const energy_from_food: f32 = 140.0;
-const food_spawn_per_tick: u32 = 9u;
+const energy_from_food: f32 = 90.0;
+const food_spawn_per_tick: u32 = 3u;
 
 fn wrap_delta(d: f32) -> f32 {
     var delta = d;
@@ -477,7 +477,7 @@ fn divide(id: vec3<u32>) {
         return;
     }
 
-    if (cells[parent].energy < 0.5) {
+    if (cells[parent].energy < 500) {
         return;
     }
 
@@ -488,7 +488,7 @@ fn divide(id: vec3<u32>) {
     //cells[child].x += 2.0;
     //cells[child].y += 2.0;
 
-    cells[parent].energy -= 3; // todo divide cost
+    cells[parent].energy -= 500; // todo divide cost
 
     cells[child].energy = cells[parent].energy * 0.5;
     cells[parent].energy *= 0.5;
@@ -561,7 +561,7 @@ fn use_outputs(id: vec3<u32>) {
 
     // aging - the older cell gets, the more resources it consumes
 	let energy_loss_const = 1f;
-	let energy_loss_movement = 1f * f32(cells[i].age) / 1000;
+	let energy_loss_movement = 3f * f32(cells[i].age) / 1000;
 
 	cells[i].energy -= energy_loss_const + energy_loss_movement * min(1, vlen);
 
@@ -659,8 +659,8 @@ fn spawn_food() {
         let rx = rand(&seed);
         let ry = rand(&seed);
 
-        food_data[index].x = rx * world_size * .5 - half_world * .5;
-        food_data[index].y = ry * world_size * .5 - half_world * .5;
+        food_data[index].x = rx * world_size * .2 - half_world * .2;
+        food_data[index].y = ry * world_size * .2 - half_world * .2;
 
         global.food_count = global.food_count + 1u;
     }
