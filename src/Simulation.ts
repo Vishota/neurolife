@@ -11,6 +11,8 @@ export default class Simulation {
     globalDataBuffer: GPUBuffer
     cameraBuffer: GPUBuffer
 
+    layers
+
     renderPipeline: GPURenderPipeline
     renderBindGroup: GPUBindGroup
     format: GPUTextureFormat
@@ -84,8 +86,13 @@ export default class Simulation {
         const weightsSize = this.weightsBuffer.size / 4
         const weights = new Float32Array(weightsSize)
 
+        const fanIn = this.layers[0]
+        const fanOut = this.layers[this.layers.length - 1]
+
+        const limit = Math.sqrt(6 / (fanIn + fanOut))
+
         for (let i = 0; i < weights.length; i++) {
-            weights[i] = (Math.random() * 2 - 1) * 0.5
+            weights[i] = (Math.random() * 2 - 1) * limit
         }
 
         this.device.queue.writeBuffer(
@@ -140,6 +147,8 @@ export default class Simulation {
         this.cellCount = cellCount
         this.canvas = canvas
         this.context = canvas.getContext('webgpu')!
+
+        this.layers = layers;
 
         const cellWeightsVolume = layers
             .slice(0, -1)
@@ -296,7 +305,9 @@ fn prepare_inputs_cells(id: vec3<u32>) {
         if(distance < closest0) {
             closest1 = closest0;
             closest0 = distance;
-            continue;
+        }
+        else if (distance < closest1) {
+            closest1 = distance;
         }
     };
 
@@ -333,10 +344,16 @@ fn prepare_inputs_food(id: vec3<u32>) {
             food_physics.y
         );
 
+        if(distance > vision_distance) {
+            continue;
+        }
+
         if(distance < closest0) {
             closest1 = closest0;
             closest0 = distance;
-            continue;
+        }
+        else if (distance < closest1) {
+            closest1 = distance;
         }
     };
 
@@ -424,8 +441,11 @@ fn calc_neuro(id: vec3<u32>) {
 fn mutate_weights(parent: u32, child: u32) {
     var seed: u32 = parent * 9781u + child * 6271u;
 
-    let mutation_probability: f32 = .5;
-    let mutation_strength: f32 = .1;
+    let mutation_weak_probability: f32 = .5;
+    let mutation_weak_strength: f32 = .01;
+
+    let mutation_severe_probability: f32 = .05;
+    let mutation_severe_strength: f32 = .2;
 
     for (var w: u32 = 0u; w < ${cellWeightsVolume}u; w = w + 1u) {
         let start = parent * ${cellWeightsVolume}u + w;
@@ -433,8 +453,13 @@ fn mutate_weights(parent: u32, child: u32) {
 
         weights[end] = weights[start];
 
-        if (rand(&seed) < mutation_probability) {
-            let delta = (rand(&seed) * 2.0 - 1.0) * mutation_strength;
+        if (rand(&seed) < mutation_weak_probability) {
+            let delta = (rand(&seed) * 2.0 - 1.0) * mutation_weak_strength;
+            weights[end] = weights[end] + delta;
+        }
+
+        if (rand(&seed) < mutation_severe_probability) {
+            let delta = (rand(&seed) * 2.0 - 1.0) * mutation_severe_strength;
             weights[end] = weights[end] + delta;
         }
     }
@@ -535,8 +560,8 @@ fn use_outputs(id: vec3<u32>) {
     cells[i].age++;
 
     // aging - the older cell gets, the more resources it consumes
-	let energy_loss_const = 1f * f32(cells[i].age) / 1000;
-	let energy_loss_movement = 2f;
+	let energy_loss_const = 1f;
+	let energy_loss_movement = 1f * f32(cells[i].age) / 1000;
 
 	cells[i].energy -= energy_loss_const + energy_loss_movement * min(1, vlen);
 
