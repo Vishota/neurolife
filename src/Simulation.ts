@@ -19,6 +19,7 @@ export default class Simulation {
     camY: number = 0
     camX: number = 0
     logTimer = 0
+    currentInstanceCount: number = 0
 
     canvas: HTMLCanvasElement
     context: GPUCanvasContext
@@ -32,7 +33,7 @@ export default class Simulation {
         // ---------- GLOBAL ----------
         const globalData = new Uint32Array(3)
         globalData[0] = this.cellCount // стартовое количество клеток
-        globalData[1] = 1000 // стартовое количество еды
+        globalData[1] = 0 // стартовое количество еды
         globalData[2] = 0
 
         this.device.queue.writeBuffer(
@@ -42,7 +43,7 @@ export default class Simulation {
         )
 
         // ---------- CELLS ----------
-        const cellStride = 8 // x,y,energy,mem0-4
+        const cellStride = 5 // x,y,energy,mem0-1
         const cells = new Float32Array(maxCells * cellStride)
 
         for (let i = 0; i < globalData[0]; i++) {
@@ -54,9 +55,6 @@ export default class Simulation {
 
             cells[base + 3] = 0
             cells[base + 4] = 0
-            cells[base + 5] = 0
-            cells[base + 6] = 0
-            cells[base + 7] = 0
         }
 
         this.device.queue.writeBuffer(
@@ -212,10 +210,7 @@ struct cell_params {
     y: f32,
 	energy: f32,
 	mem0: f32,
-	mem1: f32,
-	mem2: f32,
-	mem3: f32,
-	mem4: f32
+	mem1: f32
 };
 @group(0) @binding(4) var<storage, read_write> cells: array<cell_params>;
 
@@ -233,9 +228,6 @@ struct Camera {
     scale: f32,
     _pad: f32,
 };
-
-@group(0) @binding(6)
-var<uniform> camera: Camera;
 
 
 fn neuron_id(cell: u32, layer: u32, neuron: u32, weight: u32) -> u32 {
@@ -307,7 +299,6 @@ fn prepare_inputs_cells(id: vec3<u32>) {
     };
 
     set_input(closest0, id.x, 0);
-    set_input(closest1, id.x, 1);
 }
 
 fn prepare_inputs_food(id: vec3<u32>) {
@@ -319,10 +310,6 @@ fn prepare_inputs_food(id: vec3<u32>) {
     var closest1:f32 = 1000000;
 
     for(var i:u32 = 0; i < global.food_count; i++) {
-        if(i == id.x) {
-            continue;
-        }
-
         let food_physics = food_data[i];
         let food_gridX = ceil(food_physics.x / vision_distance);
         let food_gridY = ceil(food_physics.y / vision_distance);
@@ -351,24 +338,20 @@ fn prepare_inputs_food(id: vec3<u32>) {
         }
     };
 
-    set_input(closest0, id.x, 2);
-    set_input(closest1, id.x, 3);
+    set_input(closest0, id.x, 1);
 }
 
 fn prepare_inputs_energy(id: vec3<u32>) {
 	let cur_cell = cells[id.x];
 	
-    set_input(cur_cell.energy, id.x, 4);
+    set_input(cur_cell.energy, id.x, 2);
 }
 
 fn prepare_inputs_memory(id: vec3<u32>) {
 	let cur_cell = cells[id.x];
 	
-    set_input(cur_cell.mem0, id.x, 5);
-    set_input(cur_cell.mem1, id.x, 6);
-    set_input(cur_cell.mem2, id.x, 7);
-    set_input(cur_cell.mem3, id.x, 8);
-    set_input(cur_cell.mem4, id.x, 9);
+    set_input(cur_cell.mem0, id.x, 3);
+    set_input(cur_cell.mem1, id.x, 4);
 }
 
 fn prepare_inputs(id: vec3<u32>) {
@@ -380,15 +363,10 @@ fn prepare_inputs(id: vec3<u32>) {
 
 // ==========INPUTS==========
 // 0	= dist to cell0
-// 1	= dist to cell1
-// 2	= dist to food0
-// 3	= dist to food1
-// 4	= energy
-// 5	= mem0
-// 6	= mem1
-// 7	= mem2
-// 8	= mem3
-// 9	= mem4
+// 1	= dist to food0
+// 2	= energy
+// 3	= mem0
+// 4	= mem1
 // ==========================
 
 
@@ -468,7 +446,7 @@ fn mutate_weights(parent: u32, child: u32) {
 fn divide(id: vec3<u32>) {
     let parent = id.x;
 
-    if (global.cells_count >= ${cellCount}u) {
+    if (global.cells_count >= 100000) { // todo const cells count limit
         return;
     }
 
@@ -490,9 +468,6 @@ fn divide(id: vec3<u32>) {
 
 	cells[child].mem0 = 0f;
 	cells[child].mem1 = 0f;
-	cells[child].mem2 = 0f;
-	cells[child].mem3 = 0f;
-	cells[child].mem4 = 0f;
 
     mutate_weights(parent, child);
 
@@ -564,34 +539,17 @@ fn use_outputs(id: vec3<u32>) {
 	}
 
 	let act_divide = get_output(i, 2);
-	let act_share = get_output(i, 3);
-	let act_suicide = get_output(i, 4);
-	let act_exist = get_output(i, 5);
+	let act_exist = get_output(i, 3);
 
-	if(act_divide > act_share && act_divide > act_suicide && act_divide > act_exist) {
+	if(act_divide > act_exist) {
 		divide(id);
 	}
 
-	if(act_share > act_divide && act_share > act_suicide && act_share > act_exist) {
-		share(id);
-	}
-
-	if(act_suicide > act_share && act_suicide > act_divide && act_suicide > act_exist) {
-		// kill(id); disabled for now
-		// return;
-	}
-
-	var dmem0 = get_output(i, 6);
-	var dmem1 = get_output(i, 7);
-	var dmem2 = get_output(i, 8);
-	var dmem3 = get_output(i, 9);
-	var dmem4 = get_output(i, 10);
+	var dmem0 = get_output(i, 4);
+	var dmem1 = get_output(i, 5);
 
 	cells[i].mem0 = tanh(cells[i].mem0 * 0.97 + dmem0 * 0.05); // todo set coefficents
 	cells[i].mem1 = tanh(cells[i].mem1 * 0.97 + dmem1 * 0.05);
-	cells[i].mem2 = tanh(cells[i].mem2 * 0.97 + dmem2 * 0.05);
-	cells[i].mem3 = tanh(cells[i].mem3 * 0.97 + dmem3 * 0.05);
-	cells[i].mem4 = tanh(cells[i].mem4 * 0.97 + dmem4 * 0.05);
 
 
 
@@ -648,15 +606,10 @@ fn use_outputs(id: vec3<u32>) {
 // 1	= speed Y
 //			<<<ACTIONS>>>
 // 2	= divide
-// 3	= share food
-// 4	= suicide
-// 5	= exist (do nothing)
+// 3	= exist (do nothing)
 //			<<<MEMORY>>>
-// 6	= mem0
-// 7	= mem1
-// 8	= mem2
-// 9	= mem3
-// 10	= mem4
+// 4	= mem0
+// 5	= mem1
 // ==========================
 
 
@@ -709,9 +662,6 @@ fn tick(@builtin(global_invocation_id) id: vec3<u32>) {
             }
         })
 
-        const weightsSize =
-            cellCount * cellWeightsVolume * 4
-
         const inputsSize =
             cellCount * layers[0] * 4
 
@@ -719,7 +669,7 @@ fn tick(@builtin(global_invocation_id) id: vec3<u32>) {
             cellCount * layers[layers.length - 1] * 4
 
         this.weightsBuffer = device.createBuffer({
-            size: weightsSize,
+            size: 134217728, //todo change
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_DST
         })
 
@@ -779,10 +729,7 @@ struct cell_params {
     y: f32,
     energy: f32,
     mem0: f32,
-    mem1: f32,
-    mem2: f32,
-    mem3: f32,
-    mem4: f32
+    mem1: f32
 };
 
 struct food_params {
@@ -841,9 +788,8 @@ fn vs_main(
 
         out.position = vec4(ndc, 0.0, 1.0);
 
-        let energy = tanh(cell.energy / 1000) * 3;
-        
-        out.color = vec3(energy, energy - 1f, energy - 2f);
+        let e = clamp(cell.energy * 0.001, 0.0, 3.0);
+        out.color = vec3(e, e - 1, e - 2);
 
         return out;
     }
@@ -939,6 +885,34 @@ fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
         this.device.queue.submit([encoder.finish()])
     }
 
+    async updateInstanceCount() {
+        const readBuffer = this.device.createBuffer({
+            size: 8,
+            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        })
+
+        const encoder = this.device.createCommandEncoder()
+        encoder.copyBufferToBuffer(
+            this.globalDataBuffer,
+            0,
+            readBuffer,
+            0,
+            8
+        )
+
+        this.device.queue.submit([encoder.finish()])
+
+        await readBuffer.mapAsync(GPUMapMode.READ)
+
+        const data = new Uint32Array(readBuffer.getMappedRange())
+        const cells = data[0]
+        const food = data[1]
+
+        this.currentInstanceCount = cells + food
+
+        readBuffer.unmap()
+    }
+
     render() {
         const textureView = this.context.getCurrentTexture().createView()
 
@@ -958,15 +932,16 @@ fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
         pass.setPipeline(this.renderPipeline)
         pass.setBindGroup(0, this.renderBindGroup)
 
-        pass.draw(6, 2000000)
+        pass.draw(6, this.currentInstanceCount)
 
         pass.end()
 
         this.device.queue.submit([encoder.finish()])
     }
 
-    loop() {
+    async loop() {
         this.tick()
+        await this.updateInstanceCount()
         this.render()
 
         this.logTimer++

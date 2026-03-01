@@ -11,6 +11,6 @@ const adapter = (await navigator.gpu.requestAdapter())!
 const device = (await adapter.requestDevice())!
 
 
-const sim = new Simulation(device, [9, 13,13, 10], 10000, canvas)
+const sim = new Simulation(device, [5, 5,6, 6], 10000, canvas)
 
 sim.loop()
