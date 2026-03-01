@@ -43,7 +43,7 @@ export default class Simulation {
         )
 
         // ---------- CELLS ----------
-        const cellStride = 5 // x,y,energy,mem0-1
+        const cellStride = 6 // x,y,energy,age,mem0-1
         const cells = new Float32Array(maxCells * cellStride)
 
         for (let i = 0; i < globalData[0]; i++) {
@@ -51,10 +51,11 @@ export default class Simulation {
 
             cells[base + 0] = (Math.random() - 0.5) * 500
             cells[base + 1] = (Math.random() - 0.5) * 500
-            cells[base + 2] = 1000
+            cells[base + 2] = 1000 // energy
+            cells[base + 3] = 0 //age
 
-            cells[base + 3] = 0
             cells[base + 4] = 0
+            cells[base + 5] = 0
         }
 
         this.device.queue.writeBuffer(
@@ -209,6 +210,7 @@ struct cell_params {
     x: f32,
     y: f32,
 	energy: f32,
+    age: u32,
 	mem0: f32,
 	mem1: f32
 };
@@ -466,6 +468,8 @@ fn divide(id: vec3<u32>) {
     cells[child].energy = cells[parent].energy * 0.5;
     cells[parent].energy *= 0.5;
 
+    cells[child].age = 0;
+
 	cells[child].mem0 = 0f;
 	cells[child].mem1 = 0f;
 
@@ -528,7 +532,10 @@ fn use_outputs(id: vec3<u32>) {
         cells[i].y += world_size;
     }
 
-	let energy_loss_const = 1f;
+    cells[i].age++;
+
+    // aging - the older cell gets, the more resources it consumes
+	let energy_loss_const = 1f * f32(cells[i].age) / 1000;
 	let energy_loss_movement = 2f;
 
 	cells[i].energy -= energy_loss_const + energy_loss_movement * min(1, vlen);
@@ -728,6 +735,7 @@ struct cell_params {
     x: f32,
     y: f32,
     energy: f32,
+    age: u32,
     mem0: f32,
     mem1: f32
 };
@@ -788,8 +796,9 @@ fn vs_main(
 
         out.position = vec4(ndc, 0.0, 1.0);
 
-        let e = clamp(cell.energy * 0.001, 0.0, 3.0);
-        out.color = vec3(e, e - 1, e - 2);
+        let e = clamp(cell.energy * 0.001, 0.0, 1.0);
+        let a = clamp(f32(cell.age) * 0.001, 0.0, 1.0);
+        out.color = vec3(e, 1-a, a);
 
         return out;
     }
@@ -810,7 +819,7 @@ fn vs_main(
     );
 
     out.position = vec4(ndc, 0.0, 1.0);
-    out.color = vec3(0.0, 1.0, 0.0);
+    out.color = vec3(1.0, 1.0, 1.0);
 
     return out;
 }
