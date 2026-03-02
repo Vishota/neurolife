@@ -12,6 +12,8 @@ export default class Simulation {
     cameraBuffer: GPUBuffer
 
     layers
+    renderedCount = 0
+    computedCount = 0
 
     renderPipeline: GPURenderPipeline
     renderBindGroup: GPUBindGroup
@@ -22,6 +24,15 @@ export default class Simulation {
     camX: number = 0
     logTimer = 0
     currentInstanceCount: number = 0
+
+    paused = false
+    rendering = true
+
+
+    telemetryLastUpdated = 0
+    telemetryLastFrames = 0
+    telemetryLastTicks = 0
+
 
     canvas: HTMLCanvasElement
     context: GPUCanvasContext
@@ -35,7 +46,7 @@ export default class Simulation {
         // ---------- GLOBAL ----------
         const globalData = new Uint32Array(3)
         globalData[0] = this.cellCount // стартовое количество клеток
-        globalData[1] = 0 // стартовое количество еды
+        globalData[1] = 20000 // стартовое количество еды
         globalData[2] = 0
 
         this.device.queue.writeBuffer(
@@ -51,8 +62,8 @@ export default class Simulation {
         for (let i = 0; i < globalData[0]; i++) {
             const base = i * cellStride
 
-            cells[base + 0] = (Math.random() - 0.2) * 200
-            cells[base + 1] = (Math.random() - 0.2) * 200
+            cells[base + 0] = (Math.random() - 0.5) * 1000
+            cells[base + 1] = (Math.random() - 0.5) * 1000
             cells[base + 2] = 1000 // energy
             cells[base + 3] = 0 //age
 
@@ -72,8 +83,8 @@ export default class Simulation {
 
         for (let i = 0; i < globalData[1]; i++) {
             const base = i * foodStride
-            food[base + 0] = (Math.random() - 0.2) * 50
-            food[base + 1] = (Math.random() - 0.2) * 50
+            food[base + 0] = (Math.random() - 0.5) * 1000
+            food[base + 1] = (Math.random() - 0.5) * 1000
         }
 
         this.device.queue.writeBuffer(
@@ -265,12 +276,15 @@ fn out_id(cell: u32, o: u32) -> u32 {
 
 fn prepare_inputs_cells(id: vec3<u32>) {
 	let cur_cell = cells[id.x];
-    let cur_gridX = ceil(cur_cell.x / vision_distance);
-    let cur_gridY = ceil(cur_cell.y / vision_distance);
+    let cur_gridX = floor(cur_cell.x / vision_distance);
+    let cur_gridY = floor(cur_cell.y / vision_distance);
     
 
-    var closest0:f32 = 1000000;
-    var closest1:f32 = 1000000;
+    var closest0 = 1000000f;
+    var closest1 = 1000000f;
+
+    var closest0dx = 1000000f;
+    var closest0dy = 1000000f;
 
     for(var i:u32 = 0; i < global.cells_count; i++) {
         if(i == id.x) {
@@ -278,8 +292,8 @@ fn prepare_inputs_cells(id: vec3<u32>) {
         }
 
         let n_physics = cells[i];
-        let n_gridX = ceil(n_physics.x / vision_distance);
-        let n_gridY = ceil(n_physics.y / vision_distance);
+        let n_gridX = floor(n_physics.x / vision_distance);
+        let n_gridY = floor(n_physics.y / vision_distance);
 
         let is_potentially_visible = 
             cur_gridX > n_gridX - 1 &&
@@ -305,27 +319,34 @@ fn prepare_inputs_cells(id: vec3<u32>) {
         if(distance < closest0) {
             closest1 = closest0;
             closest0 = distance;
+
+            closest0dx = wrap_delta(cur_cell.x - n_physics.x);
+            closest0dy = wrap_delta(cur_cell.y - n_physics.y);
         }
         else if (distance < closest1) {
             closest1 = distance;
         }
     };
 
-    set_input(closest0, id.x, 0);
+    set_input(closest0dx, id.x, 0);
+    set_input(closest0dy, id.x, 1);
 }
 
 fn prepare_inputs_food(id: vec3<u32>) {
 	let cur_cell = cells[id.x];
-    let cur_gridX = ceil(cur_cell.x / vision_distance);
-    let cur_gridY = ceil(cur_cell.y / vision_distance);
+    let cur_gridX = floor(cur_cell.x / vision_distance);
+    let cur_gridY = floor(cur_cell.y / vision_distance);
     
-    var closest0:f32 = 1000000;
-    var closest1:f32 = 1000000;
+    var closest0 = 1000000f;
+    var closest1 = 1000000f;
+
+    var closest0dx = 1000000f;
+    var closest0dy = 1000000f;
 
     for(var i:u32 = 0; i < global.food_count; i++) {
         let food_physics = food_data[i];
-        let food_gridX = ceil(food_physics.x / vision_distance);
-        let food_gridY = ceil(food_physics.y / vision_distance);
+        let food_gridX = floor(food_physics.x / vision_distance);
+        let food_gridY = floor(food_physics.y / vision_distance);
 
         let is_potentially_visible = 
             cur_gridX > food_gridX - 1 &&
@@ -351,26 +372,30 @@ fn prepare_inputs_food(id: vec3<u32>) {
         if(distance < closest0) {
             closest1 = closest0;
             closest0 = distance;
+
+            closest0dx = wrap_delta(cur_cell.x - food_physics.x);
+            closest0dy = wrap_delta(cur_cell.y - food_physics.y);
         }
         else if (distance < closest1) {
             closest1 = distance;
         }
     };
 
-    set_input(closest0, id.x, 1);
+    set_input(closest0dx, id.x, 2);
+    set_input(closest0dy, id.x, 3);
 }
 
 fn prepare_inputs_energy(id: vec3<u32>) {
 	let cur_cell = cells[id.x];
 	
-    set_input(cur_cell.energy, id.x, 2);
+    set_input(cur_cell.energy, id.x, 4);
 }
 
 fn prepare_inputs_memory(id: vec3<u32>) {
 	let cur_cell = cells[id.x];
 	
-    set_input(cur_cell.mem0, id.x, 3);
-    set_input(cur_cell.mem1, id.x, 4);
+    set_input(cur_cell.mem0, id.x, 5);
+    set_input(cur_cell.mem1, id.x, 6);
 }
 
 fn prepare_inputs(id: vec3<u32>) {
@@ -381,11 +406,13 @@ fn prepare_inputs(id: vec3<u32>) {
 }
 
 // ==========INPUTS==========
-// 0	= dist to cell0
-// 1	= dist to food0
-// 2	= energy
-// 3	= mem0
-// 4	= mem1
+// 0	= dx to cell0
+// 1	= dy to cell0
+// 2	= dx to food0
+// 3	= dy to food0
+// 4	= energy
+// 5	= mem0
+// 6	= mem1
 // ==========================
 
 
@@ -478,6 +505,7 @@ fn divide(id: vec3<u32>) {
     }
 
     if (cells[parent].energy < 500) {
+        cells[parent].energy -= 100;
         return;
     }
 
@@ -587,15 +615,15 @@ fn use_outputs(id: vec3<u32>) {
 
     let cur_cell = cells[i];
 
-    let cur_gridX = ceil(cur_cell.x / vision_distance);
-    let cur_gridY = ceil(cur_cell.y / vision_distance);
+    let cur_gridX = floor(cur_cell.x / vision_distance);
+    let cur_gridY = floor(cur_cell.y / vision_distance);
 
     for (var f: u32 = 0u; f < global.food_count; f = f + 1u) {
 
         let food_physics = food_data[f];
 
-        let food_gridX = ceil(food_physics.x / vision_distance);
-        let food_gridY = ceil(food_physics.y / vision_distance);
+        let food_gridX = floor(food_physics.x / vision_distance);
+        let food_gridY = floor(food_physics.y / vision_distance);
 
         let is_potentially_close =
             cur_gridX > food_gridX - 1.0 &&
@@ -659,8 +687,8 @@ fn spawn_food() {
         let rx = rand(&seed);
         let ry = rand(&seed);
 
-        food_data[index].x = rx * world_size * .2 - half_world * .2;
-        food_data[index].y = ry * world_size * .2 - half_world * .2;
+        food_data[index].x = rx * world_size - half_world;
+        food_data[index].y = ry * world_size - half_world;
 
         global.food_count = global.food_count + 1u;
     }
@@ -895,6 +923,11 @@ fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
             if (e.key === 'q') this.scale *= 1.1
             if (e.key === 'e') this.scale *= 0.9
 
+            if (e.key === ' ') this.paused = !this.paused
+            if (e.key === 'r') this.rendering = !this.rendering
+
+            if (e.key == 'f') this.step()
+
             this.device.queue.writeBuffer(
                 this.cameraBuffer,
                 0,
@@ -973,17 +1006,89 @@ fn fs_main(input: VSOut) -> @location(0) vec4<f32> {
         this.device.queue.submit([encoder.finish()])
     }
 
-    async loop() {
+    async step() {
         this.tick()
         await this.updateInstanceCount()
-        this.render()
+    }
 
-        this.logTimer++
-        if (this.logTimer > 60) {
-            this.logTimer = 0
-            this.logState()
+    async renderLoop() {
+        if (this.rendering) {
+            this.renderedCount++
+            this.render()
         }
 
-        requestAnimationFrame(() => this.loop())
+        requestAnimationFrame(() => this.renderLoop())
     }
+
+    async computeLoop() {
+        if (!this.paused) {
+            this.computedCount++
+            this.tick()
+            await this.updateInstanceCount()
+        }
+
+        // setTimeout(() => this.computeLoop())
+    }
+
+    async updateTelemetry() {
+        const dframes = this.renderedCount - this.telemetryLastFrames
+        const dticks = this.computedCount - this.telemetryLastTicks
+        const dtime = (performance.now() - this.telemetryLastUpdated) / 1000
+
+        const tickRate = (dticks / dtime).toFixed(1)
+        const frameRate = (dframes / dtime).toFixed(1)
+
+        const instances = this.currentInstanceCount
+
+        console.log({
+            dframes,
+            dticks,
+            dtime,
+            tickRate,
+            frameRate,
+            instances,
+            frames: this.renderedCount,
+            ticks: this.computedCount
+        })
+
+        document.title = `${frameRate}F ${tickRate}T ${instances}I ${formatNumber(this.computedCount)}P`
+
+        this.telemetryLastUpdated = performance.now()
+        this.telemetryLastFrames = this.renderedCount
+        this.telemetryLastTicks = this.computedCount
+    }
+
+    async initTelemetry() {
+        setInterval(() => this.updateTelemetry(), 1000)
+    }
+
+    async start() {
+        const channel = new MessageChannel
+        const port = channel.port2
+        channel.port1.onmessage = async () => {
+           await this.computeLoop()
+           port.postMessage(0)
+        }
+        port.postMessage(0)
+        // await this.computeLoop()
+        await this.renderLoop()
+        this.initTelemetry()
+    }
+}
+
+function formatNumber(num: number): string {
+    const absNum = Math.abs(num);
+    if (absNum >= 1e12) {
+        return (num / 1e12).toFixed(1).replace(/\.0$/, '') + 't';
+    }
+    if (absNum >= 1e9) {
+        return (num / 1e9).toFixed(1).replace(/\.0$/, '') + 'b';
+    }
+    if (absNum >= 1e6) {
+        return (num / 1e6).toFixed(1).replace(/\.0$/, '') + 'm';
+    }
+    if (absNum >= 1e3) {
+        return (num / 1e3).toFixed(1).replace(/\.0$/, '') + 'k';
+    }
+    return num.toString();
 }
